@@ -1,0 +1,25 @@
+name: play
+on:
+  workflow_dispatch:
+    inputs:
+      chat_id: {required: true}
+      query: {required: true}
+concurrency:
+  group: play-${{ inputs.chat_id }}
+  cancel-in-progress: true
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install pyrogram tgcrypto py-tgcalls yt-dlp
+      - run: python stream.py
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          CHAT_ID: ${{ inputs.chat_id }}
+          QUERY: ${{ inputs.query }}
