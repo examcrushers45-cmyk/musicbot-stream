@@ -5,17 +5,27 @@ from pytgcalls.types import MediaStream
 import yt_dlp
 
 chat = int(os.environ["CHAT_ID"]); q = os.environ["QUERY"].strip()
+BASE = {"format": "bestaudio/best", "quiet": True, "noplaylist": True}
 
-def extract(target):
-    opts = {"format": "bestaudio/best", "quiet": True, "noplaylist": True}
-    if os.path.exists("cookies.txt"): opts["cookiefile"] = "cookies.txt"
-    with yt_dlp.YoutubeDL(opts) as y:
-        info = y.extract_info(target, download=False)
-        if "entries" in info:
-            entries = [e for e in info["entries"] if e and e.get("url")]
-            if not entries: raise Exception("no results")
-            info = entries[0]
+def one(url):
+    with yt_dlp.YoutubeDL(BASE) as y:
+        info = y.extract_info(url, download=False)
+        if "entries" in info: info = info["entries"][0]
+        if not info.get("url"): raise Exception("no stream url")
         return info
+
+def sc_search(name):
+    with yt_dlp.YoutubeDL({**BASE, "extract_flat": True}) as y:
+        res = y.extract_info(f"scsearch8:{name}", download=False)
+    for e in res.get("entries") or []:
+        u = e.get("url") or e.get("webpage_url")
+        if not u: continue
+        try:
+            print("Trying:", u)
+            return one(u)
+        except Exception as ex:
+            print("Skipped:", str(ex)[:90])
+    return None
 
 def yt_title(link):
     u = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(link, safe="")
@@ -25,29 +35,33 @@ def yt_title(link):
 
 def candidates(title):
     t = re.sub(r"[\(\[].*?[\)\]]", " ", title)
-    t = re.split(r"\|", t)[0]
+    t = t.split("|")[0]
     t = re.sub(r"(?i)\b(official|lyrical|lyrics|video|audio|full song|hd)\b", " ", t)
     t = re.sub(r"\s+", " ", t.replace("-", " ")).strip()
-    words = t.split()
-    out = [t, " ".join(words[:4]), " ".join(words[:2])]
+    w = t.split()
+    out = [t, " ".join(w[:4]), " ".join(w[:2])]
     return [c for i, c in enumerate(out) if c and c not in out[:i]]
 
 info = None
+is_direct = q.startswith("http") and not re.search(r"youtu\.?be", q)
 try:
-    info = extract(q if q.startswith("http") else f"ytsearch:{q}")
+    if is_direct:
+        info = one(q)
+    elif q.startswith("http"):
+        info = one(q)
+    else:
+        info = one(f"ytsearch:{q}")
 except Exception as e:
-    print("YouTube failed:", str(e)[:200])
-    try:
-        name = yt_title(q) if q.startswith("http") else q
-        for c in candidates(name):
-            print("Trying SoundCloud:", c)
-            try:
-                info = extract(f"scsearch5:{c}")
-                break
-            except Exception as e2:
-                print("No luck:", str(e2)[:100])
-    except Exception as e3:
-        print("Title lookup failed:", e3)
+    print("Primary failed:", str(e)[:150])
+    if not is_direct:
+        try:
+            name = yt_title(q) if q.startswith("http") else q
+            for c in candidates(name):
+                print("SoundCloud search:", c)
+                info = sc_search(c)
+                if info: break
+        except Exception as e3:
+            print("Fallback failed:", str(e3)[:150])
 if not info:
     print("NOTHING PLAYABLE FOUND")
     raise SystemExit(1)
